@@ -4,24 +4,32 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "pg-index-check"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Lightweight PostgreSQL index health checker CLI"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "../LICENSE" }
 requires-python = ">=3.9"
-keywords = ["postgresql", "database", "index", "performance", "dba"]
+authors = [
+    { name = "Tinker", email = "tinker@users.noreply.github.com" },
+]
+keywords = ["postgresql", "database", "index", "performance", "dba", "health-check"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
 ]
 dependencies = [
     "psycopg2-binary>=2.9",
@@ -29,10 +37,18 @@ dependencies = [
     "tabulate>=0.9",
 ]
 
+[project.urls]
+Homepage = "https://github.com/http418imateapot/pg-index-health"
+Repository = "https://github.com/http418imateapot/pg-index-health"
+"Bug Tracker" = "https://github.com/http418imateapot/pg-index-health/issues"
+Changelog = "https://github.com/http418imateapot/pg-index-health/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/http418imateapot/pg-index-health/blob/main/cli/README.md"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7",
     "pytest-mock>=3",
+    "ruff>=0.4",
 ]
 
 [project.scripts]
@@ -41,3 +57,18 @@ pg-index-check = "pg_index_check.__main__:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pg_index_check*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pg_index_check.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
