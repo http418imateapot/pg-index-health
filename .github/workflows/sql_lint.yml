@@ -41,8 +41,8 @@ jobs:
       - name: Install sqlfluff
         run: pip install "sqlfluff>=3.0"
 
-      # Parse-only: --rules L000 selects no lint rules, just confirms
-      # that sqlfluff can parse every file without syntax errors.
+      # Parse-only mode: `sqlfluff parse` validates syntax without applying
+      # any lint/style rules – exits non-zero on parse errors only.
       - name: Parse SQL files
         run: |
           sqlfluff parse \
