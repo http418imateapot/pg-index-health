@@ -7,7 +7,7 @@ name = "pg-index-check"
 dynamic = ["version"]
 description = "Lightweight PostgreSQL index health checker CLI"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [
     { name = "Tinker", email = "tinker@users.noreply.github.com" },
