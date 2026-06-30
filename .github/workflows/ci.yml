@@ -1,0 +1,60 @@
+# ============================================================
+# .github/workflows/ci.yml
+# Python syntax check (no PEP-8/style enforcement)
+#
+# Runs python -m compileall to verify there are no syntax errors
+# in the CLI package across every supported Python version.
+# ============================================================
+
+name: Python CI
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "cli/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-check:
+    name: Syntax check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Compile every .py file under cli/ – exits non-zero on any syntax error.
+      - name: Compile Python sources
+        run: python -m compileall -q cli/
+
+      # Install the package (and dev extras) so import resolution is correct,
+      # then run pytest if a tests/ directory exists.
+      - name: Install package with dev extras
+        run: pip install -e "cli/[dev]"
+
+      - name: Run tests
+        run: |
+          if [ -d "cli/tests" ]; then
+            pytest cli/
+          else
+            echo "No tests directory found – skipping pytest."
+          fi

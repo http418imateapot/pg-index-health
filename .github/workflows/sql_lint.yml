@@ -1,0 +1,51 @@
+# ============================================================
+# .github/workflows/sql_lint.yml
+# SQL syntax check with sqlfluff (PostgreSQL dialect)
+#
+# Uses `sqlfluff parse` (parse-only, no style rules) to detect
+# syntax errors in every .sql file under sql/.
+# ============================================================
+
+name: SQL Lint
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "sql/**"
+      - ".github/workflows/sql_lint.yml"
+  pull_request:
+    paths:
+      - "sql/**"
+      - ".github/workflows/sql_lint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sql-syntax:
+    name: SQL syntax check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install sqlfluff
+        run: pip install "sqlfluff>=3.0"
+
+      # Parse-only: --rules L000 selects no lint rules, just confirms
+      # that sqlfluff can parse every file without syntax errors.
+      - name: Parse SQL files
+        run: |
+          sqlfluff parse \
+            --dialect postgres \
+            --recurse \
+            sql/
