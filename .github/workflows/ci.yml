@@ -50,7 +50,7 @@ jobs:
       # Install the package (and dev extras) so import resolution is correct,
       # then run pytest if a tests/ directory exists.
       - name: Install package with dev extras
-        run: pip install -e "cli/[dev]"
+        run: pip install "cli/[dev]"
 
       - name: Run tests
         run: |
