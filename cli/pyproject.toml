@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pg-index-check"
 dynamic = ["version"]
 description = "Lightweight PostgreSQL index health checker CLI"
 readme = "README.md"
-license = { file = "../LICENSE" }
+license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [
     { name = "Tinker", email = "tinker@users.noreply.github.com" },

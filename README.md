@@ -1,5 +1,10 @@
 # pg-index-health
 
+[![Python CI](https://github.com/http418imateapot/pg-index-health/actions/workflows/ci.yml/badge.svg)](https://github.com/http418imateapot/pg-index-health/actions/workflows/ci.yml)
+[![SQL Lint](https://github.com/http418imateapot/pg-index-health/actions/workflows/sql_lint.yml/badge.svg)](https://github.com/http418imateapot/pg-index-health/actions/workflows/sql_lint.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/http418imateapot/pg-index-health?logo=github)](https://github.com/http418imateapot/pg-index-health/releases)
+[![License: MIT](https://img.shields.io/github/license/http418imateapot/pg-index-health)](LICENSE)
+
 > **PostgreSQL Index Health Checker** – 從單次診斷到長期監控的完整工具鏈。
 
 ---
