@@ -1,4 +1,4 @@
-# 資料庫索引品質分析工具
+# pg-index-health
 
 > **PostgreSQL Index Health Checker** – 從單次診斷到長期監控的完整工具鏈。
 
