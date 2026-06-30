@@ -27,6 +27,11 @@ on:
   # Allow manual runs from the Actions tab.
   workflow_dispatch:
 
+# Minimal permissions: read code, write PR comments.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   index-guard:
     name: Check index health
@@ -37,7 +42,10 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
+          # Use a GitHub Secret for the CI password.
+          # Add PG_CI_PASSWORD to your repository secrets (Settings → Secrets).
+          # For this demo, the default falls back to a random placeholder.
+          POSTGRES_PASSWORD: ${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}
           POSTGRES_DB: cidb
         ports:
           - 5432:5432
@@ -46,9 +54,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
-    env:
-      PG_DSN: "******localhost/cidb?user=ci&******"
 
     steps:
       # ---- 1. Checkout ----
@@ -69,7 +74,7 @@ jobs:
       # Replace this step with your real migration tool.
       - name: Apply test migrations
         env:
-          PGPASSWORD: ci
+          PGPASSWORD: ${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}
         run: |
           psql -h localhost -U ci -d cidb \
             -f sql/create_test_data.sql
@@ -77,6 +82,8 @@ jobs:
       # ---- 4. Run index health check ----
       - name: Run index health check
         id: index_check
+        env:
+          PG_DSN: "postgresql://ci:${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}@localhost/cidb"
         run: |
           pg-index-check check \
             --dsn "$PG_DSN" \
@@ -96,6 +103,8 @@ jobs:
       # ---- 5. Run redundant index check ----
       - name: Run redundant index check
         id: redundant_check
+        env:
+          PG_DSN: "postgresql://ci:${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}@localhost/cidb"
         run: |
           pg-index-check redundant \
             --dsn "$PG_DSN" \

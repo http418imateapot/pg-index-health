@@ -36,7 +36,9 @@ _INDEX_CHECK_SQL = textwrap.dedent(
                      / NULLIF(s.n_live_tup + s.n_dead_tup, 0)) * 100, 2
                 ), 0
             )                                                AS dead_tuple_ratio,
-            pg_stat_get_db_stat_reset_time(c.relnamespace)   AS stats_reset_at
+            pg_stat_get_db_stat_reset_time(
+                (SELECT oid FROM pg_database WHERE datname = current_database())
+            )                                                AS stats_reset_at
         FROM pg_class c
         JOIN pg_namespace n ON c.relnamespace = n.oid
         JOIN pg_stat_user_tables s ON c.oid = s.relid

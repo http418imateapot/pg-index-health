@@ -55,6 +55,7 @@ def _connect(dsn: str):
     """Return an open psycopg2 connection."""
     try:
         import psycopg2
+        import psycopg2.extensions
     except ImportError:
         click.echo(
             "psycopg2 is not installed.  Run:  pip install psycopg2-binary",
@@ -63,8 +64,11 @@ def _connect(dsn: str):
         sys.exit(1)
     try:
         return psycopg2.connect(dsn)
-    except Exception as exc:  # noqa: BLE001
+    except psycopg2.OperationalError as exc:
         click.echo(f"Connection failed: {exc}", err=True)
+        sys.exit(1)
+    except psycopg2.DatabaseError as exc:
+        click.echo(f"Database error during connect: {exc}", err=True)
         sys.exit(1)
 
 

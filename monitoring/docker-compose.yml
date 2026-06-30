@@ -51,8 +51,10 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS:-admin}
       GF_INSTALL_PLUGINS: grafana-postgresql-datasource
-      # Disable anonymous access in production; enable for demo convenience.
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      # SECURITY WARNING: anonymous access is enabled for local demo convenience only.
+      # Set GF_AUTH_ANONYMOUS_ENABLED=false and change GF_SECURITY_ADMIN_PASSWORD
+      # before exposing Grafana to any network other than localhost.
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANON_ENABLED:-true}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
       - grafana_data:/var/lib/grafana

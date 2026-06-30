@@ -68,13 +68,20 @@ SELECT
     b.baseline_at,
     l.latest_at,
     l.stats_reset_at,
-    -- Recommendation based on the 7-day window
+    -- Recommendation based on the 7-day window.
+    -- Guard all delta expressions against counter resets (latest < baseline).
     CASE
-        WHEN l.latest_idx_scan - b.baseline_idx_scan = 0
+        WHEN CASE WHEN l.latest_idx_scan >= b.baseline_idx_scan
+                  THEN l.latest_idx_scan - b.baseline_idx_scan
+                  ELSE l.latest_idx_scan END = 0
              AND b.baseline_idx_scan IS NOT NULL
             THEN 'CONSIDER DROP: zero index scans over last 7 days'
-        WHEN (l.latest_seq_scan - b.baseline_seq_scan) > 1000
-             AND (l.latest_idx_scan - b.baseline_idx_scan) < 10
+        WHEN CASE WHEN l.latest_seq_scan >= b.baseline_seq_scan
+                  THEN l.latest_seq_scan - b.baseline_seq_scan
+                  ELSE l.latest_seq_scan END > 1000
+             AND CASE WHEN l.latest_idx_scan >= b.baseline_idx_scan
+                      THEN l.latest_idx_scan - b.baseline_idx_scan
+                      ELSE l.latest_idx_scan END < 10
             THEN 'WARNING: high seq_scan rate with very low index usage over last 7 days'
         WHEN (l.latest_n_dead_tup - b.baseline_n_dead_tup) > 100000
             THEN 'RECOMMEND VACUUM: dead tuples growing rapidly over last 7 days'

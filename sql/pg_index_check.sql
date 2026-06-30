@@ -47,7 +47,10 @@ table_stats AS (
         ) AS dead_tuple_ratio,
         -- The time pg_stat counters were last reset for this database.
         -- All seq_scan / idx_scan numbers are cumulative *from this point in time*.
-        pg_stat_get_db_stat_reset_time(c.relnamespace) AS stats_reset_at
+        -- pg_stat_get_db_stat_reset_time requires the database OID, not the namespace OID.
+        pg_stat_get_db_stat_reset_time(
+            (SELECT oid FROM pg_database WHERE datname = current_database())
+        ) AS stats_reset_at
     FROM pg_class c
     JOIN pg_namespace n ON c.relnamespace = n.oid
     -- Only user tables; excludes pg_catalog, information_schema, pg_toast, etc.

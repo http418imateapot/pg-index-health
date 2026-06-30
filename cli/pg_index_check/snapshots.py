@@ -26,8 +26,8 @@ def _snapshot_dir() -> Path:
 
 
 def _snap_path(snapshot_id: str) -> Path:
-    # Sanitise to prevent directory traversal.
-    safe_id = "".join(c for c in snapshot_id if c.isalnum() or c in ("-", "_", "."))
+    # Sanitise to prevent directory traversal: allow only alphanumerics, hyphens, underscores.
+    safe_id = "".join(c for c in snapshot_id if c.isalnum() or c in ("-", "_"))
     if not safe_id:
         raise ValueError(f"Invalid snapshot ID: {snapshot_id!r}")
     return _snapshot_dir() / f"{safe_id}.json"

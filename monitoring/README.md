@@ -70,8 +70,17 @@ Or use a cron job that runs `pg-index-check monitor snapshot`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_PASSWORD` | `postgres` | PostgreSQL superuser password |
-| `GRAFANA_ADMIN_PASS` | `admin` | Grafana admin password |
+| `POSTGRES_PASSWORD` | `postgres` | PostgreSQL superuser password – **change before any non-localhost deployment** |
+| `GRAFANA_ADMIN_PASS` | `admin` | Grafana admin password – **change before any non-localhost deployment** |
+| `GRAFANA_ANON_ENABLED` | `true` | Set to `false` to require login on Grafana |
+
+> ⚠️ **Security**: The default passwords (`postgres` / `admin`) and anonymous Grafana
+> access are intentional for local demo use only.  Before deploying to any shared or
+> internet-facing environment, set strong passwords and disable anonymous access:
+> ```bash
+> POSTGRES_PASSWORD=<strong-password> GRAFANA_ADMIN_PASS=<strong-password> \
+>   GRAFANA_ANON_ENABLED=false docker compose up -d
+> ```
 
 ## Production Notes
 
