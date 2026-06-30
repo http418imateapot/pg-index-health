@@ -47,8 +47,9 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q cli/
 
-      # Install the package (and dev extras) so import resolution is correct,
-      # then run pytest if a tests/ directory exists.
+      # Install in non-editable mode to avoid editable-backend issues seen on
+      # Python 3.9 runners with newer pip/setuptools combinations.
+      # Then run pytest if a tests/ directory exists.
       - name: Install package with dev extras
         run: pip install "cli/[dev]"
 
