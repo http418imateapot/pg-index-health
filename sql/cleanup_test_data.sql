@@ -1,7 +1,15 @@
--- Switch to the new schema
-SET search_path TO bad_index_test;
+-- ============================================================
+-- cleanup_test_data.sql
+-- Removes all objects created by create_test_data.sql.
+-- Dropping the schema CASCADE removes all tables and indexes inside it.
+-- ============================================================
 
--- Drop indexes
+BEGIN;
+
+SET LOCAL search_path TO bad_index_test;
+
+-- Drop indexes individually first (harmless if schema CASCADE already handles it,
+-- but explicit drops make the intent clear during partial cleanups).
 DROP INDEX IF EXISTS idx_order_date;
 DROP INDEX IF EXISTS idx_user_id;
 DROP INDEX IF EXISTS idx_random;
@@ -12,5 +20,7 @@ DROP INDEX IF EXISTS idx_amount;
 -- Drop table
 DROP TABLE IF EXISTS test_orders;
 
--- Drop schema
+COMMIT;
+
+-- Drop schema (outside transaction so CASCADE is not accidentally rolled back)
 DROP SCHEMA IF EXISTS bad_index_test CASCADE;

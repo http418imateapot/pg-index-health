@@ -1,0 +1,68 @@
+# ============================================================
+# docker-compose.yml – pg-index-check monitoring stack
+#
+# Services:
+#   postgres   – PostgreSQL 16 (target DB + monitoring history DB)
+#   grafana    – Grafana OSS with the index health dashboard pre-loaded
+#
+# Quick start:
+#   docker compose up -d
+#   # Set up monitoring schema:
+#   docker compose exec postgres \
+#     psql -U postgres -d monitoring \
+#     -f /docker-entrypoint-initdb.d/create_snapshot_schema.sql
+#   # Open Grafana: http://localhost:3000  (admin / admin)
+#
+# Environment variables you can override:
+#   POSTGRES_PASSWORD   – default: postgres
+#   GRAFANA_ADMIN_PASS  – default: admin
+# ============================================================
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Creates two databases: one to monitor, one to store history.
+      POSTGRES_MULTIPLE_DATABASES: appdb,monitoring
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Init scripts run alphabetically on first start.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      # Mount SQL files so they can be run manually.
+      - ../sql:/sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana-oss:10.4.2
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASS:-admin}
+      GF_INSTALL_PLUGINS: grafana-postgresql-datasource
+      # SECURITY WARNING: anonymous access is enabled for local demo convenience only.
+      # Set GF_AUTH_ANONYMOUS_ENABLED=false and change GF_SECURITY_ADMIN_PASSWORD
+      # before exposing Grafana to any network other than localhost.
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANON_ENABLED:-true}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  grafana_data:

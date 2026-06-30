@@ -1,0 +1,218 @@
+# ============================================================
+# .github/workflows/pg_index_guard.yml
+# Scene B – CI/CD Pipeline Index Regression Guard
+#
+# This workflow runs on every pull request and:
+#   1. Spins up a PostgreSQL service container.
+#   2. Applies the test-data migration (or your real migration files).
+#   3. Runs pg_index_check to surface any bad/redundant indexes.
+#   4. Fails the build if any index is flagged with a non-OK recommendation.
+#   5. Posts the full report as a PR comment.
+#
+# To use this in your own project:
+#   • Replace the "Apply migrations" step with your own migration command
+#     (Flyway, Liquibase, Alembic, golang-migrate, etc.).
+#   • Adjust POSTGRES_* environment variables as needed.
+# ============================================================
+
+name: PostgreSQL Index Guard
+
+on:
+  pull_request:
+    paths:
+      # Trigger only when SQL migrations or index-check files change.
+      - "sql/**"
+      - "migrations/**"
+      - ".github/workflows/pg_index_guard.yml"
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# Minimal permissions: read code, write PR comments.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  index-guard:
+    name: Check index health
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          # Use a GitHub Secret for the CI password.
+          # Add PG_CI_PASSWORD to your repository secrets (Settings → Secrets).
+          # For this demo, the default falls back to a random placeholder.
+          POSTGRES_PASSWORD: ${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}
+          POSTGRES_DB: cidb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # ---- 1. Checkout ----
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- 2. Install pg-index-check CLI ----
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pg-index-check
+        run: pip install -e cli/
+
+      # ---- 3. Apply migrations ----
+      # Replace this step with your real migration tool.
+      - name: Apply test migrations
+        env:
+          PGPASSWORD: ${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}
+        run: |
+          psql -h localhost -U ci -d cidb \
+            -f sql/create_test_data.sql
+
+      # ---- 4. Run index health check ----
+      - name: Run index health check
+        id: index_check
+        env:
+          PG_DSN: "postgresql://ci:${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}@localhost/cidb"
+        run: |
+          pg-index-check check \
+            --dsn "$PG_DSN" \
+            --output json \
+            > /tmp/index_report.json
+
+          # Summarise to a human-readable table and capture it.
+          pg-index-check check \
+            --dsn "$PG_DSN" \
+            --output table \
+            > /tmp/index_report_table.txt
+
+          echo "report_table<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/index_report_table.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # ---- 5. Run redundant index check ----
+      - name: Run redundant index check
+        id: redundant_check
+        env:
+          PG_DSN: "postgresql://ci:${{ secrets.PG_CI_PASSWORD || 'ci-only-no-prod-data' }}@localhost/cidb"
+        run: |
+          pg-index-check redundant \
+            --dsn "$PG_DSN" \
+            --output json \
+            > /tmp/redundant_report.json
+
+          pg-index-check redundant \
+            --dsn "$PG_DSN" \
+            --output table \
+            > /tmp/redundant_report_table.txt
+
+          echo "redundant_table<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/redundant_report_table.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # ---- 6. Fail if any non-OK recommendation ----
+      - name: Evaluate index health
+        run: |
+          ISSUES=$(python3 - <<'PYEOF'
+          import json, sys
+          rows = json.load(open("/tmp/index_report.json"))
+          bad  = [r for r in rows if r.get("recommendation","OK") != "OK"]
+          print(len(bad))
+          PYEOF
+          )
+
+          REDUNDANT=$(python3 - <<'PYEOF'
+          import json, sys
+          rows = json.load(open("/tmp/redundant_report.json"))
+          droppable = [r for r in rows if "SAFE TO DROP" in r.get("recommendation","")]
+          print(len(droppable))
+          PYEOF
+          )
+
+          echo "Index issues found: $ISSUES"
+          echo "Redundant indexes found: $REDUNDANT"
+
+          # Post counts as step summary.
+          echo "## Index Guard Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Count |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Non-OK index recommendations | $ISSUES |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Redundant indexes (safe to drop) | $REDUNDANT |" >> "$GITHUB_STEP_SUMMARY"
+
+          # Optionally fail the build on issues (uncomment to enforce):
+          # if [ "$ISSUES" -gt 0 ] || [ "$REDUNDANT" -gt 0 ]; then
+          #   echo "::error::Index health issues detected. Review the PR comment for details."
+          #   exit 1
+          # fi
+
+      # ---- 7. Post PR comment ----
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const table    = fs.readFileSync('/tmp/index_report_table.txt', 'utf8');
+            const redundant = fs.readFileSync('/tmp/redundant_report_table.txt', 'utf8');
+
+            const body = [
+              '## 🔍 PostgreSQL Index Health Report',
+              '',
+              '> Generated by `pg-index-check` on this PR\'s migration.',
+              '> Stats counters cover the test run only; production results will differ.',
+              '',
+              '<details>',
+              '<summary>Index Health Check</summary>',
+              '',
+              '```',
+              table,
+              '```',
+              '</details>',
+              '',
+              '<details>',
+              '<summary>Redundant Index Check</summary>',
+              '',
+              '```',
+              redundant,
+              '```',
+              '</details>',
+            ].join('\n');
+
+            // Find and update an existing comment, or create a new one.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(
+              c => c.user.login === 'github-actions[bot]'
+                && c.body.includes('PostgreSQL Index Health Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
