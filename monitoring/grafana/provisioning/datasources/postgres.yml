@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL-Monitoring
+    type: postgres
+    url: postgres:5432
+    user: postgres
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD:-postgres}
+    jsonData:
+      database: monitoring
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+      postgresVersion: 1600
+      timescaledb: false
+    isDefault: true
+    editable: false

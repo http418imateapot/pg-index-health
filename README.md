@@ -1,90 +1,208 @@
-# 資料庫索引品質分析小工具
+# 資料庫索引品質分析工具
+
+> **PostgreSQL Index Health Checker** – 從單次診斷到長期監控的完整工具鏈。
 
 ---
 
 ## 目的
 
-提供 PostgreSQL 資料表索引品質分析與測試資料 SQL 範例，首先分析關聯式資料庫中的低效索引特徵，包括使用率、Dead Tuples、Index/Table Size 比例，分析辨識未命中索引 (Index Miss) 與過度索引 (Over-indexing)，用於改善查詢效能並減少儲存空間浪費。
+提供 PostgreSQL 資料表索引品質分析工具，包括三個互補的使用場景：
 
-## 目標
+| 場景 | 適用對象 | 工具 |
+|------|----------|------|
+| **A – CLI 診斷** | 需要一次性健康檢查的工程師 | `cli/` Python CLI |
+| **B – CI/CD 守衛** | 有 migration 流程的開發團隊 | `.github/workflows/pg_index_guard.yml` |
+| **C – 長期監控** | DBA / SRE 需要趨勢分析 | `monitoring/` Docker Compose + Grafana |
 
-找出品質不良的索引，調整資料表設計後可改善：
+核心能力：
+- 辨識**未命中索引**（Index Miss）與**過度索引**（Over-indexing）
+- 偵測**冗餘索引**（欄位重疊的索引組合）
+- 追蹤 **dead tuple 成長趨勢**
+- 輸出**可執行的建議動作**，而非只是數字
 
-* 儲存空間浪費：找出過大或冗餘的索引，刪除不必要的索引。
-* 提升查詢效能：找出未被使用的索引，或查詢未能利用的索引，進行重新設計。
-* 最佳化索引策略：透過排序與指標分析，協助資料庫管理員 調整索引，提升資料表查詢效率。
+---
 
-## 低效索引特徵
+## 快速開始
 
-以下依索引品質嚴重程度，由高到低介紹低校索引的特徵與定義。
+### 場景 A：CLI 工具（一次性診斷）
+
+```bash
+pip install -e cli/
+
+# 檢查所有 schema
+pg-index-check check --dsn "******localhost/mydb"
+
+# 只顯示有問題的索引
+pg-index-check check --dsn $PG_DSN --issues-only
+
+# JSON 輸出（方便 jq / 自動化）
+pg-index-check check --dsn $PG_DSN --output json
+
+# 偵測冗餘索引
+pg-index-check redundant --dsn $PG_DSN
+
+# 兩次執行之間的 delta 比較
+pg-index-check snapshot save    --dsn $PG_DSN --id prod-baseline
+pg-index-check snapshot compare --dsn $PG_DSN --id prod-baseline
+```
+
+詳見 [cli/README.md](cli/README.md)。
+
+### 場景 B：CI/CD 索引守衛
+
+PR 合入前自動執行索引健康檢查，並在 PR 留下報告。
+
+GitHub Actions workflow 已包含在 `.github/workflows/pg_index_guard.yml`，
+將 migration 步驟替換為你的工具（Flyway / Alembic / golang-migrate 等）即可使用。
+
+### 場景 C：長期監控儀表板
+
+```bash
+cd monitoring/
+docker compose up -d
+# 開啟 http://localhost:3000 (admin/admin)
+```
+
+詳見 [monitoring/README.md](monitoring/README.md)。
+
+---
+
+## SQL 檔案說明
+
+```
+sql/
+├── pg_index_check.sql          # 主要索引健康分析查詢
+├── redundant_index_check.sql   # 冗餘索引偵測查詢
+├── create_test_data.sql        # 建立測試資料（含交易包裝）
+├── cleanup_test_data.sql       # 清理測試資料
+└── monitoring/
+    ├── create_snapshot_schema.sql  # 建立長期監控 schema
+    ├── snapshot_procedure.sql      # 快照收集 stored procedure
+    ├── window_analysis.sql         # 時間窗口 delta 分析查詢
+    └── cleanup_snapshot_schema.sql # 清理監控 schema
+```
+
+### 使用測試資料
+
+(測試資料會建立並使用 schema `bad_index_test`)
+
+```sql
+-- 1. 建立測試資料
+\i sql/create_test_data.sql
+
+-- 2. 執行索引品質分析
+\i sql/pg_index_check.sql
+
+-- 3. 執行冗餘索引偵測
+\i sql/redundant_index_check.sql
+
+-- 4. 清理測試資料
+\i sql/cleanup_test_data.sql
+```
+
+---
+
+## 低效索引特徵定義
+
+以下依索引品質嚴重程度，由高到低介紹低效索引的特徵與定義。
 
 ### 索引超過資料表大小 (index_over_table_size)
 
-* 計算公式：``(index_size_bytes - table_size_bytes) / table_size_bytes``
-* 定義：衡量索引相較於資料表的大小是否過大。
-* 糟糕的索引設計：當 index_over_table_size > 100%，表示該索引比資料表本身還大，可能是 儲存空間的浪費。過大的索引會導致寫入變慢，並影響查詢效能。
-
+- 計算公式：`(index_size_bytes - table_size_bytes) / table_size_bytes`
+- 定義：衡量索引相較於資料表的大小是否過大。
+- 糟糕的索引設計：當 `index_over_table_size > 0`（即索引比資料表本身還大），可能是儲存空間的浪費。過大的索引會導致寫入變慢，並影響查詢效能。
 
 ### 全表掃描 (seq_scan_count)
 
-* 定義：統計資料表在查詢時 未使用索引，而直接執行全表掃描 的次數。
-* 糟糕的索引設計：若 seq_scan_count 很高，但 index_usage_count 很低，代表該查詢可能缺少適當的索引。既有索引可能設計不良，導致查詢無法使用。或是查詢可能沒有寫好，導致索引無法發揮作用。
+- 定義：統計資料表在查詢時未使用索引，而直接執行全表掃描的次數。
+- 糟糕的索引設計：若 `seq_scan_count` 很高，但 `index_usage_count` 很低，代表該查詢可能缺少適當的索引；既有索引可能設計不良，導致查詢無法使用；或是查詢可能沒有寫好，導致索引無法發揮作用。
+- **重要**：`seq_scan` 是自上次 `pg_stat_reset()` 起的累積值，務必參考 `stats_reset_at` 欄位確認統計時間範圍。
 
 ### 索引佔表比例 (index_table_ratio)
 
-* 計算公式：``index_size_bytes / table_size_bytes``
-* 定義：計算索引大小與資料表大小的比例。
-* 糟糕的索引設計：當 index_table_ratio > 100%，代表索引大小已經超過資料表本身，可能有過度索引 (over-indexing) 的問題。過多索引不僅浪費儲存，也可能降低寫入效能，因為每次新增或修改資料時，索引也需要同步更新。
+- 計算公式：`index_size_bytes / table_size_bytes`
+- 定義：計算索引大小與資料表大小的比例。
+- 糟糕的索引設計：當 `index_table_ratio > 100%`，代表索引大小已經超過資料表本身，可能有過度索引 (over-indexing) 的問題。
 
 ### 死亡元組 (dead tuples)
 
-* 定義：dead tuples 是 已刪除或更新但尚未被 VACUUM 清理的記錄，仍然佔用索引與表的空間。
-* 糟糕的索引設計：若索引 index scan 很少使用，但 dead tuple 比例很高，代表索引可能已經失去作用，應進行重建 (REINDEX) 或刪除。
-若 dead_tuple_size_estimate > 500MB，應該執行 VACUUM FULL 或 REINDEX 來回收空間。
+- 定義：dead tuples 是已刪除或更新但尚未被 VACUUM 清理的記錄，仍然佔用索引與表的空間。
+- 糟糕的索引設計：若索引 scan 很少，但 dead tuple 比例很高，代表索引可能已經失去作用，應進行重建 (REINDEX) 或刪除。
+- **注意**：`dead_tuple_size_estimate` 是近似值（dead tuple 比例 × heap 大小），在 TOAST 欄位佔比高的資料表上可能有 2–5 倍誤差。精確值請使用 `pgstattuple` 擴充。
 
-### 資料表大小 (table_size_bytes)
+### 冗餘索引 (redundant indexes)
 
-* 糟糕的索引設計：大表的索引若使用率低，可能導致查詢效能下降。小表的索引若過大，則可能是空間浪費。
+- 定義：當索引 A 的欄位是索引 B 欄位的超集（前綴包含），索引 B 提供不了任何索引 A 無法提供的查詢計畫，因此 B 是冗餘的。
+- 偵測：使用 `sql/redundant_index_check.sql` 或 `pg-index-check redundant`。
 
-## 使用說明
+---
 
-以下步驟說明如何使用提供的 SQL 檔案來測試索引品質分析：
+## 分析結果輸出欄位
 
-(測試資料會建立並使用 schema "``bad_index_test``")
+| 欄位 | 說明 |
+|------|------|
+| `schema_name` | Schema 名稱 |
+| `table_name` | 資料表名稱 |
+| `index_name` | 索引名稱 |
+| `table_size` | 資料表大小（heap only） |
+| `index_size` | 索引大小 |
+| `seq_scan_count` | 全表掃描累積次數 |
+| `index_usage_count` | 索引掃描累積次數 |
+| `dead_tuple_ratio` | Dead tuple 佔比 (%) |
+| `dead_tuple_size` | Dead tuple 佔用空間估算 |
+| `index_table_ratio` | 索引大小 / 表大小 × 100 |
+| `index_over_table_size` | (索引大小 − 表大小) / 表大小 × 100 |
+| `stats_reset_at` | pg_stat 計數器上次重置時間 |
+| `recommendation` | 可執行的建議動作 |
 
-1. **建立測試資料**：執行 `sql/create_test_data.sql` 建立測試資料表與索引，並插入測試資料。
-2. **索引品質分析**：執行 `sql/pg_index_check.sql` 分析資料表索引品質，找出低效索引。
-3. **清理測試資料**：執行 `sql/cleanup_test_data.sql` 清理測試資料表與索引。
+### 分析結果範例
 
-### 測試資料說明
+| Schema | Table | Index | Table Size | Index Size | Seq Scans | Idx Scans | Dead Tuple % | Recommendation |
+|--------|-------|-------|------------|------------|-----------|-----------|--------------|----------------|
+| bad_index_test | test_orders | idx_random | 21 MB | 11 MB | 15 | 0 | 28.21 | CONSIDER DROP: index has never been used since last stats reset |
+| bad_index_test | test_orders | idx_amount | 21 MB | 5944 kB | 15 | 1 | 28.21 | RECOMMEND: run VACUUM ANALYZE (dead tuple ratio > 20%) |
+| bad_index_test | test_orders | idx_order_date | 21 MB | 4760 kB | 15 | 1 | 28.21 | RECOMMEND: run VACUUM ANALYZE (dead tuple ratio > 20%) |
 
-測試資料表 `test_orders` 包含以下欄位：
-- `id`: 主鍵
-- `user_id`: 使用者 ID
-- `order_date`: 訂單日期
-- `amount`: 訂單金額
-- `status`: 訂單狀態 (pending, shipped, delivered, cancelled)
-- `random_value`: 隨機值 (模擬無用索引)
+---
 
-建立以下索引：
-- `idx_order_date`: 訂單日期索引
-- `idx_user_id`: 使用者 ID 索引
-- `idx_random`: 隨機值索引 (可能無用)
-- `idx_status`: 訂單狀態索引 (可能無用)
-- `idx_amount`: 訂單金額索引 (過度索引範例)
+## 在生產環境安全使用
 
-### 分析結果簡介
+### 所需權限（最小化）
 
-以下為索引品質分析結果範例：
+```sql
+-- 建立唯讀監控角色
+CREATE ROLE monitoring_role;
 
-| Schema          | Table       | Index         | Table Size | Index Size | Seq Scan Count | Index Usage Count | Dead Tuple Ratio | Dead Tuple Size | Index/Table Ratio | Index Over Table Size |
-|-----------------|-------------|---------------|------------|------------|----------------|-------------------|------------------|-----------------|-------------------|-----------------------|
-| bad_index_test  | test_orders | idx_random    | 21 MB      | 11 MB      | 15             | 0                 | 28.21            | 5929 kB         | 54.97             | -45.03                |
-| bad_index_test  | test_orders | idx_amount    | 21 MB      | 5944 kB    | 15             | 1                 | 28.21            | 5929 kB         | 28.28             | -71.72                |
-| bad_index_test  | test_orders | idx_order_date| 21 MB      | 4760 kB    | 15             | 1                 | 28.21            | 5929 kB         | 22.65             | -77.35                |
-| bad_index_test  | test_orders | test_orders_pkey | 21 MB   | 4408 kB    | 15             | 0                 | 28.21            | 5929 kB         | 20.97             | -79.03                |
-| bad_index_test  | test_orders | idx_user_id   | 21 MB      | 2056 kB    | 15             | 1                 | 28.21            | 5929 kB         | 9.78              | -90.22                |
-| bad_index_test  | test_orders | idx_status    | 21 MB      | 1544 kB    | 15             | 1                 | 28.21            | 5929 kB         | 7.35              | -92.65                |
+GRANT pg_monitor TO monitoring_role;
+-- 或手動授予：
+GRANT SELECT ON pg_stat_user_tables  TO monitoring_role;
+GRANT SELECT ON pg_stat_user_indexes TO monitoring_role;
+GRANT SELECT ON pg_class             TO monitoring_role;
+GRANT SELECT ON pg_namespace         TO monitoring_role;
+GRANT SELECT ON pg_index             TO monitoring_role;
+GRANT SELECT ON pg_attribute         TO monitoring_role;
+GRANT SELECT ON pg_database          TO monitoring_role;
+```
 
-透過分析結果，可以辨識出低效索引，進而進行調整以提升查詢效能並減少儲存空間浪費。
+### 連線池（PgBouncer / pgpool）注意事項
+
+`create_test_data.sql` 已將 `SET search_path` 改為 `SET LOCAL search_path`，
+並包裝在交易中，避免在 transaction mode 的連線池環境中污染其他 session。
+
+在生產環境請**不要**在連線池共享連線上執行 `SET search_path`（無 `LOCAL`）。
+
+### pg_stat 計數器的時間範圍
+
+所有 `seq_scan`、`idx_scan` 計數器都是**累積值**，從上次 `pg_stat_reset_single_table_counters()`（PG 15+）或資料庫層級 `pg_stat_reset()` 起算。
+
+查看計數器的有效時間範圍：
+
+```sql
+SELECT pg_stat_get_db_stat_reset_time(oid)
+FROM pg_database
+WHERE datname = current_database();
+```
+
+建議使用**快照比較模式**（`pg-index-check snapshot`）或場景 C 的長期歷史表來得到有時間窗口的分析結果。
+
 
