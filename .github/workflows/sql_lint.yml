@@ -47,5 +47,4 @@ jobs:
         run: |
           sqlfluff parse \
             --dialect postgres \
-            --recurse \
             sql/
